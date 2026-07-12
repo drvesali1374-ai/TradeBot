@@ -1,0 +1,88 @@
+//@version=5
+strategy("Improved Fake Breakout Strategy-2", overlay=true)
+
+// Groups
+var string g_str  ='Breakout Set'
+var string g2_str ='Lookback Set'
+var string g3_str ='Pivot H/L Set'
+var string g4_str ='Risk Management'
+
+// Inputs
+ch_fb = input.string('prev day h/l', title='Choose Fake Breakout Of', options=['prev day h/l', 'Pivot'], group=g_str)
+leftBars = input.int(20, 'leftBars', group=g3_str)
+rightBars = input.int(20, 'rightBars', group=g3_str)
+look_back = input.int(5, title='Lookback Previous Candle Breakout', group=g2_str)
+sl_multiplier = input.float(1.5, "Stop Loss ATR Multiplier", minval=0.1, step=0.1, group=g4_str)
+tp_multiplier = input.float(3.0, "Take Profit ATR Multiplier", minval=0.1, step=0.1, group=g4_str)
+avg_volume_period = input.int(20, "Average Volume Period", group=g_str)
+volume_multiplier = input.float(1.5, "Volume Multiplier", minval=-5.0, step=0.1, group=g_str)
+rsi_threshold = input.int(50, "RSI Threshold", minval=10, maxval=90, group=g_str)
+htf_timeframe = input.string('D', "Higher Time Frame", options=['D', '4H'], group=g_str)
+use_fixed_sl_long = input.bool(false, "Use Fixed Stop Loss for Long?", group=g4_str)
+fixed_sl_pct_long = input.float(4.0, "Fixed Stop Loss % for Long", minval=0.1, step=0.1, group=g4_str)
+use_fixed_sl_short = input.bool(false, "Use Fixed Stop Loss for Short?", group=g4_str)
+fixed_sl_pct_short = input.float(4.0, "Fixed Stop Loss % for Short", minval=0.1, step=0.1, group=g4_str)
+
+// Calculations
+h = high
+l = low
+p_dh = request.security(syminfo.tickerid, 'D', h[1], lookahead=barmerge.lookahead_on)
+p_dl = request.security(syminfo.tickerid, 'D', l[1], lookahead=barmerge.lookahead_on)
+ph = ta.pivothigh(leftBars, rightBars)
+pl = ta.pivotlow(leftBars, rightBars)
+val_ph = ta.valuewhen(ph, high[rightBars], 0)
+val_pl = ta.valuewhen(pl, low[rightBars], 0)
+bars_lookph = ch_fb == 'prev day h/l' ? ta.barssince(ta.crossover(close, p_dh)) : ta.barssince(ta.crossover(close, val_ph))
+bars_lookpl = ch_fb == 'prev day h/l' ? ta.barssince(ta.crossunder(close, p_dl)) : ta.barssince(ta.crossunder(close, val_pl))
+avg_volume = ta.sma(volume, avg_volume_period)
+rsi = ta.rsi(close, 14)
+atr = ta.atr(14)
+
+// Higher Time Frame Confirmation
+htf_close = request.security(syminfo.tickerid, htf_timeframe, close, lookahead=barmerge.lookahead_on)
+htf_p_dh = request.security(syminfo.tickerid, htf_timeframe, h[1], lookahead=barmerge.lookahead_on)
+htf_p_dl = request.security(syminfo.tickerid, htf_timeframe, l[1], lookahead=barmerge.lookahead_on)
+htf_ph = request.security(syminfo.tickerid, htf_timeframe, ta.pivothigh(leftBars, rightBars), lookahead=barmerge.lookahead_on)
+htf_pl = request.security(syminfo.tickerid, htf_timeframe, ta.pivotlow(leftBars, rightBars), lookahead=barmerge.lookahead_on)
+htf_val_ph = ta.valuewhen(htf_ph, htf_p_dh, 0)
+htf_val_pl = ta.valuewhen(htf_pl, htf_p_dl, 0)
+
+// Conditions
+var buy_cond = false
+var sell_cond = false
+
+if ta.crossover(close, p_dl) and bars_lookpl <= look_back and ch_fb == 'prev day h/l' and volume > avg_volume * volume_multiplier and rsi < rsi_threshold and htf_close > htf_p_dl
+    buy_cond := true
+
+if ta.crossunder(close, p_dh) and bars_lookph <= look_back and ch_fb == 'prev day h/l' and volume > avg_volume * volume_multiplier and rsi > rsi_threshold and htf_close < htf_p_dh
+    sell_cond := true
+
+if ta.crossover(close, val_pl) and bars_lookpl <= look_back and ch_fb == 'Pivot' and volume > avg_volume * volume_multiplier and rsi < rsi_threshold and htf_close > htf_val_pl
+    buy_cond := true
+
+if ta.crossunder(close, val_ph) and bars_lookph <= look_back and ch_fb == 'Pivot' and volume > avg_volume * volume_multiplier and rsi > rsi_threshold and htf_close < htf_val_ph
+    sell_cond := true
+
+// Entries and Exits
+if buy_cond and not buy_cond[1]
+    strategy.entry("Long", strategy.long)
+    sl_price = use_fixed_sl_long ? close * (1 - fixed_sl_pct_long / 100) : close - atr * sl_multiplier
+    tp_price = close + atr * tp_multiplier
+    strategy.exit("Exit Long", from_entry="Long", stop=sl_price, limit=tp_price)
+
+if sell_cond and not sell_cond[1]
+    strategy.entry("Short", strategy.short)
+    sl_price = use_fixed_sl_short ? close * (1 + fixed_sl_pct_short / 100) : close + atr * sl_multiplier
+    tp_price = close - atr * tp_multiplier
+    strategy.exit("Exit Short", from_entry="Short", stop=sl_price, limit=tp_price)
+
+// Resets
+if buy_cond and ch_fb == 'Pivot'
+    buy_cond := false
+
+if sell_cond and ch_fb == 'Pivot'
+    sell_cond := false
+
+if ta.change(time('D')) and ch_fb == 'prev day h/l'
+    buy_cond := false
+    sell_cond := false
