@@ -1,0 +1,608 @@
+هیچ سیستم تشخیص روندی که در همه بازارها و همه شرایط نزدیک به ۱۰۰٪ دقت داشته باشد، تاکنون وجود ندارد. دلیل آن این است که بازارها غیرایستا (Non-stationary) هستند؛ یعنی رفتار آن‌ها در طول زمان تغییر می‌کند. تحقیقات و تجربه عملی نشان می‌دهد که به‌جای تلاش برای پیش‌بینی کامل جهت بازار، تمرکز بر تشخیص رژیم بازار (Market Regime Detection) معمولاً نتایج پایدارتر و کاربردی‌تری ایجاد می‌کند.
+پیشنهادی که من برای پروژه دارم
+
+من اگر این پروژه را توسعه بدهم، آن را به چند لایه تقسیم می‌کنم.
+
+لایه اول
+
+Trend Detection Engine
+
+↓
+
+لایه دوم
+
+Market Regime Engine
+
+↓
+
+لایه سوم
+
+Entry Engine
+
+↓
+
+لایه چهارم
+
+Risk Engine
+
+یک موتور تشخیص رژیم بازار (Market Regime Engine) طراحی می‌کنم که هسته تصمیم‌گیری باشد و سپس استراتژی‌های مختلف (از جمله Fake Breakout، Pullback، Breakout و Momentum) فقط زمانی فعال شوند که رژیم بازار با آن‌ها سازگار باشد.
+
+به نظر من این معماری، هم از نظر علمی قوی‌تر است و هم در بلندمدت بسیار مقیاس‌پذیرتر از تلاش برای کامل کردن یک استراتژی منفرد خواهد بود.
+
+معماری پیشنهادی پروژه
+
+من پروژه را به ۱۰ موتور مستقل تقسیم می‌کنم.
+
+Data Engine
+
+↓
+
+Feature Engine
+
+↓
+
+Market Structure Engine
+
+↓
+
+Market Regime Engine
+
+↓
+
+Trend Scoring Engine
+
+↓
+
+Strategy Engine
+
+↓
+
+Signal Confidence Engine
+
+↓
+
+Risk Engine
+
+↓
+
+Execution Engine
+
+↓
+
+Learning Engine
+
+این باعث می‌شود هر بخش مستقل باشد و بعداً بتوان هر موتور را بدون تغییر کل پروژه ارتقاء داد.
+
+موتور اول
+Data Engine
+
+این موتور فقط مسئول دریافت داده است.
+
+داده‌هایی که باید ذخیره شوند:
+
+OHLCV
+
+Funding Rate
+
+Open Interest
+
+Liquidation
+
+VWAP
+
+Volume Profile
+
+Session
+
+Spread
+
+OrderBook
+
+Fear & Greed
+
+BTC Dominance
+
+Stablecoin Flow
+
+DXY
+
+در نسخه اول می‌توانید فقط OHLCV را پیاده کنید.
+
+بعداً منابع دیگر اضافه شوند.
+
+موتور دوم
+Feature Engine
+
+این موتور اصلاً سیگنال تولید نمی‌کند.
+
+فقط از داده‌ها Feature استخراج می‌کند.
+
+بخش هایی که باید طراحی شود:
+
+ATR
+
+ATR %
+
+ATR Expansion
+
+ATR Compression
+
+EMA20
+
+EMA50
+
+EMA100
+
+EMA200
+
+Slope EMA20
+
+Slope EMA50
+
+Distance from EMA200
+
+RSI
+
+MFI
+
+CCI
+
+ADX
+
+DI+
+
+DI-
+
+MACD Histogram
+
+OBV
+
+VWAP Distance
+
+Volume Ratio
+
+Volume Spike
+
+Delta Volume
+
+Efficiency Ratio
+
+Hurst Exponent
+
+Fractal Dimension
+
+Donchian Width
+
+Keltner Width
+
+Bollinger Width
+
+Realized Volatility
+
+Rolling Std
+
+ZScore
+
+Liquidity Sweep
+
+Swing High
+
+Swing Low
+
+Higher High
+
+Lower Low
+
+Higher Low
+
+Lower High
+
+Previous Day High
+
+Previous Day Low
+
+Weekly High
+
+Weekly Low
+
+Monthly High
+
+Monthly Low
+
+تقریباً هیچ تصمیمی اینجا گرفته نمی‌شود.
+
+فقط ویژگی ساخته می‌شود.
+
+موتور سوم
+Market Structure Engine
+
+این بخش مهم‌ترین قسمت پروژه است.
+
+به جای اندیکاتور، ساختار بازار را تحلیل می‌کند.
+
+تشخیص دهد:
+
+HH
+
+HL
+
+LH
+
+LL
+
+Internal Structure
+
+External Structure
+
+Break of Structure
+
+CHOCH
+
+Liquidity Grab
+
+Order Block
+
+Fair Value Gap
+
+Premium Zone
+
+Discount Zone
+
+Equal High
+
+Equal Low
+
+Range
+
+Expansion
+
+Compression
+
+تمام این‌ها باید مستقل از استراتژی باشند.
+
+موتور چهارم
+Market Regime Engine
+
+به نظر من قلب پروژه همین قسمت است.
+
+به جای اینکه فقط بگوید:
+
+Bull
+
+Bear
+
+باید این خروجی را تولید کند:
+
+Strong Bull Trend
+
+Weak Bull Trend
+
+Strong Bear Trend
+
+Weak Bear Trend
+
+Range
+
+Compression
+
+Expansion
+
+Transition
+
+High Volatility
+
+Low Volatility
+
+Distribution
+
+Accumulation
+
+این موتور نباید بر اساس یک اندیکاتور تصمیم بگیرد، بلکه باید چندین ویژگی را با هم ترکیب کند تا از تغییرات مکرر و پرنویز جلوگیری شود. در معماری‌های مدرن تشخیص رژیم نیز روی استفاده از چند ویژگی قابل تفسیر و جلوگیری از تغییرات سریع رژیم تأکید شده است.
+
+موتور پنجم
+Trend Score Engine
+
+به جای اینکه بگوید:
+
+Up
+
+Down
+
+باید یک امتیاز تولید کند.
+
+مثلاً:
+
+Trend Strength
+
+0
+
+↓
+
+100
+
+مثلاً
+
+EMA Slope
+
+۱۵ امتیاز
+
+ADX
+
+۱۵ امتیاز
+
+Market Structure
+
+۲۰ امتیاز
+
+Volume
+
+۱۰ امتیاز
+
+Momentum
+
+۱۰ امتیاز
+
+ATR Expansion
+
+۱۰ امتیاز
+
+Liquidity
+
+۱۰ امتیاز
+
+Multi Timeframe
+
+۱۰ امتیاز
+
+Regime
+
+۱۰ امتیاز
+
+جمع
+
+۱۰۰
+
+خروجی
+
+مثلاً:
+
+۸۸
+
+یعنی روند بسیار قوی.
+
+موتور ششم
+Strategy Engine
+
+اینجاست که استراتژی‌ها قرار می‌گیرند.
+
+نه فقط Fake Breakout.
+
+بلکه:
+
+Fake Breakout
+
+Breakout
+
+Pullback
+
+Trend Continuation
+
+Liquidity Sweep
+
+Mean Reversion
+
+Range
+
+Scalping
+
+Momentum
+
+هر استراتژی مستقل باشد.
+
+موتور هفتم
+Signal Confidence Engine
+
+به نظر من این قسمت باید اضافه شود.
+
+به جای اینکه خروجی فقط:
+
+Long
+
+باشد.
+
+خروجی شود:
+
+Long
+
+Confidence
+
+94%
+
+این درصد از ترکیب همه Featureها ساخته شود.
+
+مثلاً
+
+Trend
+
+Regime
+
+Volume
+
+Momentum
+
+Liquidity
+
+ATR
+
+HTF
+
+Market Structure
+
+هر کدام وزن خود را داشته باشند.
+
+موتور هشتم
+Risk Engine
+
+این قسمت اصلاً نباید ثابت باشد.
+
+مثلاً
+
+اگر Confidence
+
+95
+
+باشد
+
+Position Size
+
+100%
+
+اگر
+
+60
+
+باشد
+
+30%
+
+اگر
+
+40
+
+باشد
+
+No Trade
+
+حد سود و حد ضرر نیز بر اساس ATR، ساختار بازار و نوسانات تنظیم شوند، نه صرفاً مقادیر ثابت.
+
+موتور نهم
+Execution Engine
+
+این همان بخشی است که اکنون در پروژه شما وجود دارد.
+
+فقط سفارش‌ها را ارسال کند.
+
+هیچ تصمیمی نگیرد.
+
+موتور دهم
+Learning Engine
+
+این قسمت پروژه را هوشمند می‌کند.
+
+بعد از هر معامله اطلاعات زیر ذخیره شود:
+
+Entry
+
+Exit
+
+ATR
+
+Trend Score
+
+Regime
+
+Signal Score
+
+Featureها
+
+Profit
+
+Loss
+
+Drawdown
+
+Holding Time
+
+سپس سیستم تحلیل کند:
+
+کدام Featureها بیشترین نقش را در معاملات موفق داشته‌اند.
+
+کدام Featureها باعث ضرر شده‌اند.
+
+بخش دهم را فعلا قصد طراحی ندارم و شاید بعدا به آن بپردازیم، پس نیازی به وقت گذاشتن برای آن نیست.
+
+پیشنهادهایی که حتماً به پروژه اضافه شوند
+
+من اگر این پروژه را طراحی کنم، این قابلیت‌ها را نیز از همان ابتدا در معماری لحاظ می‌کنم:
+
+سیستم Plugin برای اضافه کردن استراتژی‌های جدید بدون تغییر هسته.
+سیستم وزن‌دهی پویا به Featureها.
+تنظیمات مستقل برای هر تایم‌فریم.
+سیستم Walk-Forward Optimization برای جلوگیری از بیش‌برازش (Overfitting).
+ثبت کامل لاگ تصمیم‌گیری؛ یعنی برای هر سیگنال مشخص باشد کدام Featureها چه امتیازی داده‌اند.
+سیستم Explainability که دلیل تولید یا عدم تولید هر سیگنال را نمایش دهد.
+موتور Backtest و Forward Test با شبیه‌سازی کارمزد، اسلیپیج و تأخیر اجرای سفارش.
+سیستم نسخه‌بندی تنظیمات و پارامترها.
+قابلیت Auto Calibration برای تنظیم خودکار آستانه‌ها بر اساس هر نماد و تایم‌فریم، به‌جای استفاده از مقادیر ثابت. ایدهٔ استفاده از آستانه‌های تطبیقی به‌جای مقادیر ثابت در سیستم‌های تشخیص رژیم مدرن نیز مطرح شده است.
+Persistence/Hysteresis Filter تا تغییر رژیم بازار فقط پس از چند کندل تأیید شود و سیستم بین دو وضعیت دائماً جابه‌جا نشود. این روش یکی از راهکارهای شناخته‌شده برای کاهش Whipsaw است.
+مهم‌ترین توصیه
+
+
+هدف پروژه تولید سیگنال خرید و فروش نیست؛ هدف پروژه ساخت یک موتور هوشمند تشخیص وضعیت بازار است. سیگنال خرید و فروش باید تنها یکی از خروجی‌های این موتور باشد، نه هسته اصلی آن.
+
+سند طراحی معماری (Architecture Specification) به این صورت است:
+
+معماری کامل پروژه
+طراحی هر Engine
+طراحی هر Feature
+تنظیمات پیش‌فرض تمام اندیکاتورها
+تنظیمات Adaptive
+سیستم امتیازدهی
+سیستم Confidence
+سیستم Regime Detection
+سیستم Plugin
+سیستم Walk Forward
+سیستم Auto Calibration
+سیستم Explainability
+ساختار دیتابیس
+ساختار فایل‌ها
+استانداردهای کدنویسی
+API Design
+Event Bus
+Logger
+Versioning
+Backtesting Engine
+Optimization Engine
+UI/UX Design
+و ده‌ها بخش دیگر.
+
+من پیشنهاد می‌کنم پروژه را به این ترتیب پیاده سازی کنیم :
+
+فصل ۱: فلسفه پروژه، اهداف، معماری کلان و اصول طراحی
+فصل ۲: طراحی کامل Data Engine
+فصل ۳: طراحی کامل Feature Engine
+فصل ۴: طراحی کامل Market Structure Engine
+فصل ۵: طراحی کامل Market Regime Engine
+فصل ۶: طراحی کامل Trend Scoring Engine
+فصل ۷: طراحی کامل Strategy Engine
+فصل ۸: طراحی کامل Confidence Engine
+فصل ۹: طراحی کامل Risk Engine
+فصل ۱۰: طراحی کامل Execution Engine
+فصل ۱۱: طراحی کامل Learning Engine
+فصل ۱۲: طراحی کامل Backtesting & Walk Forward
+فصل ۱۳: طراحی کامل Auto Calibration
+فصل ۱۴: طراحی UI/UX، تنظیمات، Plugin System و استانداردهای توسعه
+فصل ۱۵: Roadmap پیاده‌سازی مرحله‌به‌مرحله و اولویت‌بندی توسعه
+
+در هر فصل نیز جزئیاتی مانند موارد زیر مشخص خواهد شد:
+
+هدف دقیق آن Engine
+ورودی‌ها و خروجی‌ها
+مسئولیت‌ها
+ارتباط با سایر ماژول‌ها
+تنظیمات پیش‌فرض
+پروفایل‌های آماده (Conservative / Balanced / Aggressive)
+نحوه Adaptive شدن
+نحوه Modular شدن
+API داخلی
+Eventهای تولیدی
+Logger
+نحوه Cache
+مدیریت خطا
+Performance Optimization
+Multi-Timeframe Logic
+Explainability
+تست واحد (Unit Test)
+تست یکپارچه (Integration Test)
+مستندات موردنیاز
+قابلیت توسعه در آینده
