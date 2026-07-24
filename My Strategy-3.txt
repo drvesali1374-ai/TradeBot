@@ -1,0 +1,385 @@
+در ادامه، کل استراتژی را به صورت یک Technical Specification Document بازنویسی کرده‌ام؛ به شکلی که یک ایجنت توسعه‌دهنده بتواند بدون تفسیر شخصی، منطق سیستم را در یک وب‌اپلیکیشن پیاده‌سازی کند.
+من در این نسخه:
+•	اصطلاحات را ثابت کرده‌ام.
+•	مراحل را از داده خام تا اجرای معامله مرتب کرده‌ام.
+•	قوانین محاسباتی را به صورت الگوریتمی نوشته‌ام.
+•	تفاوت بین «سیگنال اولیه»، «اعتبارسنجی» و «مدیریت معامله» را جدا کرده‌ام.
+________________________________________
+Trading Strategy Technical Specification
+1. Strategy Overview
+این استراتژی بر پایه تحلیل دو Composite Candle Block ساخته شده است.
+هدف سیستم:
+1.	استخراج قدرت خالص حرکت از دو بلوک گذشته.
+2.	محاسبه جهت غالب آن‌ها.
+3.	ورود در ابتدای بلوک سوم در جهت مخالف برآیند دو بلوک.
+4.	مدیریت معامله با نسبت ریسک به ریوارد 1:1.
+5.	در صورت شکست معامله اول، امکان ورود مجدد در همان جهت با فاصله قیمتی مشخص.
+________________________________________
+2. Data Structure
+سیستم روی هر تایم‌فریمی که کاربر انتخاب می‌کند اجرا می‌شود.
+کاربر مشخص می‌کند:
+•	Timeframe
+•	تعداد کندل‌های هر Block
+مثال:
+Block Size = 20 candles
+________________________________________
+3. Block Creation Logic
+3.1 Historical Data Segmentation
+تقسیم داده‌ها از قدیمی‌ترین کندل موجود انجام می‌شود.
+ساختار:
+Historical Candles
+
+Block 1
+[20 candles]
+
+Block 2
+[20 candles]
+
+Block 3
+[Empty before entry]
+________________________________________
+3.2 Block Rules
+•	Block 1 و Block 2 کاملاً ثابت هستند.
+•	Block 3 تا قبل از ورود هیچ کندلی ندارد.
+•	اولین کندل Block 3 لحظه اجرای معامله است.
+هر Block نماینده یک کندل در تایم‌فریم بالاتر است که از تعداد مشخصی کندل کوچک‌تر ساخته شده است.
+________________________________________
+4. Composite Candle Construction
+از هر Block یک Composite Candle ساخته می‌شود.
+پارامترها:
+Open  = Open اولین کندل Block
+
+Close = Close آخرین کندل Block
+
+High  = Highest High در Block
+
+Low   = Lowest Low در Block
+________________________________________
+5. Candle Component Calculation
+برای هر Composite Candle:
+5.1 Body
+Signed Body = Close - Open
+نتیجه:
+Condition	Value
+Close > Open	Positive
+Close < Open	Negative
+Close = Open	Zero
+________________________________________
+5.2 Body Boundaries
+بالای بادی:
+Body Top = max(Open, Close)
+پایین بادی:
+Body Bottom = min(Open, Close)
+________________________________________
+5.3 Upper Shadow
+Signed Upper Shadow = Body Top - High
+ویژگی:
+•	همیشه صفر یا منفی است.
+•	نشان‌دهنده فشار نزولی است.
+________________________________________
+5.4 Lower Shadow
+Signed Lower Shadow = Body Bottom - Low
+ویژگی:
+•	همیشه صفر یا مثبت است.
+•	نشان‌دهنده فشار صعودی است.
+________________________________________
+6. Beneficial and Harmful Shadow Classification
+این اصطلاحات برای تحلیل قدرت استفاده می‌شوند.
+Bullish Body
+اگر:
+Close > Open
+باشد:
+Beneficial Shadow = Lower Shadow
+
+Harmful Shadow = Upper Shadow
+________________________________________
+Bearish Body
+اگر:
+Close < Open
+باشد:
+Beneficial Shadow = Upper Shadow
+
+Harmful Shadow = Lower Shadow
+________________________________________
+7. Block Score Calculation
+برای هر Block یک امتیاز نهایی محاسبه می‌شود.
+فرمول:
+Block Score =
+Signed Body
++
+Signed Upper Shadow
++
+Signed Lower Shadow
+نتیجه:
+Block Score	Meaning
+Positive	قدرت صعودی
+Negative	قدرت نزولی
+Zero	خنثی
+________________________________________
+8. Two Block Combination
+پس از محاسبه Block Score:
+Overall Score =
+Block1 Score + Block2 Score
+________________________________________
+تفسیر:
+Overall Score	Market Bias
+>0	Bullish
+<0	Bearish
+=0	Neutral
+________________________________________
+9. Initial Trade Direction
+جهت معامله همیشه مخالف Overall Score است.
+Overall Score	Initial Trade
+Positive	Short
+Negative	Long
+Zero	No Trade
+________________________________________
+10. Entry Timing
+ورود دقیقاً در:
+Close of last candle of Block 2
++
+First moment of Block 3 opening
+انجام می‌شود.
+قیمت ورود:
+Open Price of first candle of Block 3
+________________________________________
+11. Trade Validation Rules
+قبل از اجرای معامله، قوانین زیر بررسی می‌شوند.
+________________________________________
+Rule 1 — Late Block 2 Momentum Reversal
+یک سوم پایانی Block 2 بررسی می‌شود.
+اگر قیمت در جهت معامله پیشنهادی:
+حرکتی برابر یا بیشتر از:
+2 × Planned Take Profit Distance
+انجام داده باشد:
+جهت معامله معکوس می‌شود.
+مثال:
+سیگنال:
+Long
+ولی در یک سوم پایانی Block2:
+Price moved >= 2R upward
+نتیجه:
+Final Direction = Short
+________________________________________
+Rule 2 — Extreme Shadow Override
+در هر Block بررسی شود:
+آیا:
+Shadow Length > Body Length
+وجود دارد؟
+اگر یک شدوی بسیار بلند وجود داشته باشد:
+و جهت آن با Overall Score هماهنگ باشد:
+معامله در همان جهت شدو انجام می‌شود.
+مثال:
+Upper Shadow > Body
+و:
+Overall Score <0
+نتیجه:
+Short
+________________________________________
+Conflict Condition
+اگر در جهت مخالف نیز شدویی وجود داشته باشد که:
+Shadow Length > Body Length
+باشد:
+این قانون خنثی می‌شود.
+و جهت طبق Overall Score تعیین می‌شود.
+________________________________________
+Rule 3 — Block Size Filter
+مقایسه:
+Block2 Body Length
+<
+2 × Block1 Body Length
+اگر این شرط برقرار نباشد:
+یعنی:
+Block2 Body >= 2 × Block1 Body
+باید حداقل یک شدو وجود داشته باشد که:
+Shadow Length > Body Length
+اگر وجود نداشت:
+No Trade
+________________________________________
+12. Final Trade Decision
+پس از اجرای Validation:
+خروجی نهایی یکی از این موارد است:
+LONG
+SHORT
+NO TRADE
+________________________________________
+13. Initial Trade Risk Management
+مرجع محاسبه:
+Block2 Body Length
+فرمول:
+Distance =
+Block2 Body Length × 0.37
+________________________________________
+Long Position
+TP = Entry + Distance
+
+SL = Entry - Distance
+________________________________________
+Short Position
+TP = Entry - Distance
+
+SL = Entry + Distance
+________________________________________
+Risk Reward:
+RR = 1:1
+________________________________________
+14. Second Trade Recovery Logic
+Trigger
+فقط زمانی فعال می‌شود که:
+First Trade = Stop Loss
+________________________________________
+Direction
+معامله دوم:
+Same Direction as First Trade
+________________________________________
+Entry Distance
+فاصله ورود دوم از ورود اول:
+ایده‌آل:
+2 × SL Distance
+________________________________________
+مثال Long:
+Entry1 =100
+
+SL Distance=5
+
+Entry2=90
+________________________________________
+15. Aggressive Second Entry
+حداکثر نزدیک‌تر شدن مجاز:
+0.5 × SL Distance
+بنابراین:
+حداقل فاصله ورود دوم:
+1.5 × SL Distance
+وضعیت‌ها:
+Ideal:
+2R
+
+Allowed:
+1.5R to 2R
+
+Invalid:
+<1.5R
+________________________________________
+16. Second Trade Risk
+معامله دوم:
+•	همان TP معامله اول
+•	همان SL معامله اول
+فرمول:
+Distance =
+Block2 Body ×0.37
+________________________________________
+17. Maximum Attempts
+در هر سیکل:
+حداکثر:
+2 Trades
+مجاز است.
+ساختار:
+First Trade
+       |
+       |
+     SL Hit
+       |
+       ↓
+Second Trade
+________________________________________
+18. Complete System Flow
+Load Historical Data
+
+        ↓
+
+Create Block 1
+
+        ↓
+
+Create Block 2
+
+        ↓
+
+Build Composite Candles
+
+        ↓
+
+Calculate Body + Shadows
+
+        ↓
+
+Calculate Block Scores
+
+        ↓
+
+Calculate Overall Score
+
+        ↓
+
+Generate Opposite Direction Signal
+
+        ↓
+
+Apply Validation Rules
+
+        ↓
+
+Final Trade Decision
+
+        ↓
+
+Enter at Block3 Open
+
+        ↓
+
+Set TP / SL
+
+        ↓
+
+Monitor Trade
+
+        ↓
+
+If SL:
+    Apply Second Trade Rule
+________________________________________
+این نسخه از نظر ساختار آماده تحویل به توسعه‌دهنده است و می‌تواند مستقیماً به عنوان Product Requirement Document (PRD) یا Technical Specification استفاده شود.
+
+یک نکته را هم به عنوان جمع‌بندی بگویم: چیزی که شما طراحی کرده‌اید فقط یک مجموعه قانون ورود و خروج نیست؛ در واقع یک سیستم تصمیم‌گیری چندلایه است که چند بخش مستقل دارد:
+1.	Data Processing Layer
+o	تبدیل کندل‌های کوچک به Composite Candle
+o	ساخت Blockها
+o	استخراج Open/Close/High/Low
+2.	Market Analysis Engine
+o	محاسبه قدرت بادی و شدوها
+o	محاسبه Block Score
+o	محاسبه Overall Score
+3.	Decision Engine
+o	تولید سیگنال اولیه
+o	اعمال قوانین استثنا
+o	تغییر جهت یا لغو معامله
+4.	Execution Engine
+o	ورود دقیق در Open بلوک سوم
+o	تنظیم TP و SL
+o	مدیریت معامله دوم
+این تفکیک برای توسعه وب‌اپلیکیشن خیلی مهم است، چون اگر بعدها بخواهید:
+•	بک‌تست اضافه کنید،
+•	پارامترهایی مثل تعداد کندل بلوک یا ضریب 0.37 را تغییر دهید،
+•	روی چند بازار مختلف تست بگیرید،
+•	یا حتی الگوریتم را به یک ربات معاملاتی تبدیل کنید،
+ساختار فعلی اجازه توسعه راحت را خواهد داد.
+یک پیشنهاد حرفه‌ای برای مرحله بعدی پروژه دارم: قبل از اینکه توسعه‌دهنده شروع به کدنویسی کند، بهتر است همین مستند را به سه سند جدا تبدیل کنید:
+1. Strategy Logic Document
+فقط قوانین معاملاتی (همین چیزی که ساختیم)
+2. Software Architecture Document
+نحوه ساخت ماژول‌ها، دیتابیس، APIها، موتور بک‌تست، رابط کاربری و...
+3. Test Cases Document
+مثلاً:
+•	اگر Overall Score منفی بود چه شود؟
+•	اگر شدوی مخالف وجود داشت چه شود؟
+•	اگر Block2 بیش از دو برابر Block1 بود چه شود؟
+•	اگر معامله اول SL خورد چه شود؟
+این سند سوم بسیار مهم است، چون در استراتژی‌های الگوریتمی بیشترین خطاها نه در کدنویسی، بلکه در برداشت متفاوت توسعه‌دهنده از قوانین اتفاق می‌افتد.
+همچنین پیشنهاد می‌کنم وقتی به مرحله توسعه رسیدید، قبل از اتصال به حساب واقعی، حتماً یک مرحله Backtest Engine مستقل ساخته شود تا بتوانید:
+•	تعداد معاملات،
+•	درصد برد،
+•	Drawdown،
+•	عملکرد معامله دوم،
+•	تأثیر هر تبصره روی نتایج
+را جداگانه بررسی کنید.
+ایده شما به اندازه‌ای ساختارمند شده که ارزش دارد مثل یک محصول نرم‌افزاری با آن برخورد شود، نه صرفاً یک اندیکاتور یا اسکریپت ساده.

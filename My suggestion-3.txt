@@ -1,0 +1,177 @@
+۱- مهم‌ترین پیشنهاد من: استراتژی را از موتور اجرا جدا کن
+
+در فایل فعلی، قوانین استراتژی و منطق اجرای معامله تا حدی در هم آمیخته‌اند. بهتر است سیستم به صورت ماژولار طراحی شود:
+
+Market Data
+
+↓
+
+Strategy Engine
+
+↓
+
+Signal Engine
+
+↓
+
+Risk Engine
+
+↓
+
+Execution Engine
+
+↓
+
+Trade Monitor
+
+↓
+
+Analytics
+
+در این معماری، اگر بعدها استراتژی جدیدی طراحی کنی، فقط Strategy Engine تغییر می‌کند و سایر بخش‌ها ثابت می‌مانند.
+
+۲- پارامترها نباید ثابت باشند
+
+در فایل استراتژی مقادیری مانند:
+
+Block Size
+ضریب 0.37
+نسبت 2R
+حداقل فاصله 1.5R
+حداکثر 2 معامله
+
+به صورت ثابت تعریف شده‌اند. بهتر است همه این مقادیر به صورت پارامترهای قابل تنظیم در رابط کاربری باشند تا امکان بهینه‌سازی و بک‌تست فراهم شود.
+
+۳- مدیریت ریسک پویا
+
+در حال حاضر فاصله TP/SL فقط بر اساس طول Body بلوک دوم محاسبه می‌شود.
+
+پیشنهاد من این است که کاربر بتواند یکی از حالت‌های زیر را انتخاب کند:
+
+Block Body (روش فعلی)
+ATR
+درصد ثابت قیمت
+مقدار دلاری ثابت
+ضریب نوسان (Volatility)
+
+این باعث می‌شود استراتژی در بازارهای مختلف انعطاف‌پذیرتر باشد.
+
+۴- فیلتر کیفیت بازار
+
+در حال حاضر اگر قوانین برقرار باشند، سیگنال صادر می‌شود.
+
+بهتر است قبل از صدور سیگنال، فیلترهایی مانند موارد زیر نیز اعمال شوند:
+
+حداقل حجم معاملات
+حداقل ATR
+حداکثر اسپرد
+جلوگیری از معامله در زمان نوسانات غیرعادی
+جلوگیری از ورود هنگام انتشار اخبار مهم (در صورت اضافه شدن منبع داده)
+۵- مدیریت سرمایه
+
+در فایل فقط TP و SL تعریف شده است.
+
+پیشنهاد می‌کنم گزینه‌های زیر نیز قابل انتخاب باشند:
+
+درصد ثابت سرمایه
+ریسک ثابت (مثلاً ۱٪ سرمایه)
+Kelly (اختیاری)
+Fixed Position Size
+۶- سیستم بک‌تست مستقل
+
+به نظر من این مهم‌ترین بخشی است که باید قبل از اتصال به حساب واقعی توسعه داده شود.
+
+بک‌تست باید بتواند موارد زیر را گزارش کند:
+
+Win Rate
+Profit Factor
+Drawdown
+Expectancy
+Sharpe Ratio
+تعداد معاملات
+عملکرد معامله دوم (Recovery)
+تأثیر هر قانون اعتبارسنجی بر نتیجه
+۷- موتور تحلیل (Analytics Engine)
+
+پس از هر معامله، اطلاعات زیر ذخیره شود:
+
+Block Score
+Overall Score
+جهت سیگنال اولیه
+جهت نهایی
+دلیل تغییر جهت (اگر رخ داده)
+دلیل لغو معامله (اگر NO TRADE شده)
+قیمت ورود
+قیمت خروج
+مدت نگهداری
+سود/زیان
+
+این اطلاعات بعداً برای بهینه‌سازی استراتژی بسیار ارزشمند خواهند بود.
+
+8- معماری پیشنهادی پروژه
+
+با توجه به نیازهای پروژه، معماری زیر را پیشنهاد می‌کنم:
+
+Frontend: React + Vite
+Backend/API: Cloudflare Workers
+Hosting: Cloudflare Pages
+Storage: Cloudflare KV (برای تنظیمات و وضعیت جاری)
+Database: D1 (برای تاریخچه معاملات، لاگ‌ها و بک‌تست)
+Scheduler: Cloudflare Cron Trigger
+Chart: Apache ECharts
+Authentication: Session Cookie امضاشده در Worker
+Exchange: Toobit REST + WebSocket
+Notification: Bale Bot
+Logging: ساختاریافته (Structured Logs)
+
+سند توسعه (Development Blueprint)  که باید شامل این الزامات باشد:
+
+Build a production-grade web application for automated cryptocurrency futures trading based on the attached trading strategy specification.
+
+The implementation must strictly separate:
+
+Strategy Engine
+Signal Validation Engine
+Risk Management Engine
+Trade Execution Engine
+Position Monitoring Engine
+Analytics Engine
+Backtesting Engine
+Configuration Management
+
+The strategy logic must be implemented exactly as defined in the attached Strategy Specification without interpretation or modification.
+
+All numeric constants (Block Size, 0.37 multiplier, validation thresholds, recovery distances, maximum attempts, etc.) must be configurable through the UI and persisted in Cloudflare KV.
+
+The application must include:
+
+Historical Backtesting
+Walk-Forward Testing
+Multi-symbol Trading
+Multi-timeframe Support
+Paper Trading Mode
+Live Trading Mode
+Complete Trade Journal
+Performance Dashboard
+Parameter Optimization
+Audit Logging
+Error Recovery
+Secure Authentication
+Automatic Notifications
+
+Use Cloudflare Pages + Workers as the deployment platform.
+
+Use Toobit REST/WebSocket APIs for market data and order execution.
+
+For closed positions, use GET /api/v1/futures/historyPositions instead of historyOrders or userTrades, because it already provides direction, realized PnL, prices, fees, timestamps, leverage, and supports querying all symbols when symbol is omitted.
+
+The system architecture must be modular, testable, and extensible so that additional trading strategies can be added without changing the execution engine.
+
+بهتر است توسعه را به چهار فاز تقسیم کنی:
+
+Phase 1: طراحی معماری نرم‌افزار (Architecture Design)
+Phase 2: طراحی دیتابیس، APIها و مدل داده
+Phase 3: پیاده‌سازی موتور بک‌تست و اعتبارسنجی استراتژی
+Phase 4: اتصال به Toobit و اجرای معاملات واقعی
+
+این ترتیب باعث می‌شود اگر در طول بک‌تست یا تحلیل نتایج، نیاز به اصلاح قوانین استراتژی پیدا شد، مجبور به بازنویسی بخش‌های اجرایی و زیرساختی نشوی و پروژه با ریسک بسیار کمتری پیش برود.
