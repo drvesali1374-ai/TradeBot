@@ -1,0 +1,554 @@
+۱) Data Provider Abstraction
+
+ایجنت فقط پرسیده از Binance یا Toobit استفاده شود.
+
+من پیشنهاد می‌کنم صریحاً اضافه کنی:
+
+تمام قسمت‌های سیستم باید از یک Data Provider Interface استفاده کنند تا در آینده بتوان بدون تغییر Strategy Engine بین Binance، KuCoin، Toobit یا هر صرافی دیگر جابه‌جا شد.
+
+این نکته در پاسخ فعلی وجود ندارد.
+
+۲) Parameter Optimization
+
+ایجنت پیشنهاد داده:
+
+Grid Search
+Monte Carlo
+
+من پیشنهاد می‌کنم بنویسی:
+
+در فاز اول فقط Grid Search پیاده‌سازی شود.
+
+Monte Carlo به نسخه‌های بعد منتقل شود.
+
+چون Monte Carlo پروژه را سنگین می‌کند.
+
+۳) Walk Forward Testing
+
+گفته بودی می‌خواهی Win Rate بررسی شود.
+
+ولی بهتر است مشخص کنی:
+
+Walk Forward Testing نیز جزو Deliverable های فاز اول باشد.
+
+۴) Trade Journal
+
+ایجنت پیشنهاد بسیار خوبی داده است.
+
+بهتر است تأییدش کنی و بنویسی:
+
+هر معامله باید ذخیره کند:
+
+Initial Score
+Final Score
+Validation Rules
+دلیل تغییر جهت
+دلیل NO TRADE
+پارامترهای استفاده شده
+نسخه Strategy
+
+بعداً برای مقایسه نسخه‌های استراتژی بسیار مهم است.
+
+۵) Versioning
+
+این مورد اصلاً مطرح نشده.
+
+من پیشنهاد می‌کنم اضافه کنی:
+
+هر Backtest باید Version داشته باشد.
+
+مثلاً
+
+Strategy v1.0
+
+Parameters A
+
+Run #25
+
+تا بعداً بتوان نتایج را مقایسه کرد.
+
+۶) Optimization نباید خودکار باشد
+
+بهتر است اضافه کنی:
+
+سیستم نباید خودش پارامترهای بهتر را جایگزین کند.
+
+فقط پیشنهاد بدهد.
+
+تصمیم نهایی با کاربر باشد.
+
+۷) سوال مربوط به بهبود استراتژی
+
+ایجنت پرسیده بود:
+
+آیا پیشنهادات بهبود را اعمال کنم؟
+
+به نظر من بهتر است دقیق‌تر جواب بدهی.
+
+نه فقط:
+
+Feature Flag
+
+بلکه:
+
+سه دسته تعریف کن:
+
+Core Strategy
+
+غیرقابل تغییر
+
+Optional Validation
+
+قابل خاموش و روشن
+
+Experimental Features
+
+فقط برای تحقیق
+
+مثلاً
+
+HTF Filter
+Shadow Ratio
+Time Exit
+
+این کار معماری را خیلی تمیزتر می‌کند.
+
+۸) ساختار Phase ها
+
+من Phase ها را کمی تغییر می‌دهم.
+
+Phase 1
+
+Historical Data Engine
+
+Composite Block Engine
+
+Strategy Engine
+
+Replay Backtest
+
+UI
+
+↓
+
+Phase 2
+
+Analytics
+
+Trade Journal
+
+Optimization
+
+Walk Forward
+
+↓
+
+Phase 3
+
+Paper Trading
+
+↓
+
+Phase 4
+
+Live Trading
+
+به نظر من این ترتیب بهتر است.
+
+۹) یکی از مهم‌ترین چیزهایی که جا افتاده
+
+به نظر من این مهم‌ترین نکته است.
+
+به ایجنت بگو:
+
+هیچ Feature جدیدی نباید منطق اصلی Strategy را تغییر دهد.
+
+بلکه باید به صورت
+
+Enable
+
+Disable
+
+باشد.
+
+یعنی همیشه بتوان
+
+Original Strategy
+
+را دقیقاً اجرا کرد.
+
+Project Goal
+
+At this stage, this project is NOT intended to be a live trading bot.
+
+The goal is to build a Strategy Research & Backtesting Laboratory that allows me to validate, analyze and improve my trading strategy before connecting to any exchange account.
+
+Therefore, please focus entirely on:
+
+Historical data analysis
+Strategy implementation
+Backtesting
+Walk-forward testing
+Parameter optimization
+Analytics
+Visualization
+Trade journal
+
+Live trading will be implemented in a later phase.
+
+Review of your suggestions
+1. Time Exit
+
+I agree.
+
+Please add Time Exit as an optional feature.
+
+It should be configurable.
+
+Supported modes:
+
+No Time Exit (default)
+Exit at the close of Block 3
+Exit after N candles
+Exit by Trailing Stop
+
+This feature must be implemented as a Feature Flag.
+
+2. Recovery Trade RR
+
+Excellent observation.
+
+Although the strategy document defines TP/SL rules, I agree that the effective Risk/Reward of the second trade is different.
+
+Please report Recovery Trades separately inside Analytics.
+
+Do not change the trading logic.
+
+Only improve reporting.
+
+3. Normalized Block Score
+
+Good idea.
+
+However, I do NOT want to replace the original Block Score.
+
+Please implement both:
+
+Raw Block Score
+Normalized Block Score
+
+Normalization should be optional.
+
+Possible methods:
+
+ATR
+Close Price
+
+User can choose.
+
+4. Higher Timeframe Trend Filter
+
+Good suggestion.
+
+However, this is NOT part of the original strategy.
+
+Please implement it as an optional Validation Rule.
+
+Default:
+
+Disabled.
+
+5. Shadow Ratio
+
+I agree.
+
+Instead of only:
+
+Shadow > Body
+
+please make the threshold configurable.
+
+For example:
+
+ShadowRatio > X
+
+Default:
+
+1.0
+
+This should also be optional.
+
+6. Block Boundary
+
+This is one of the most important implementation details.
+
+The blocks must be time-aligned, not rolling.
+
+For example:
+
+Block Size = 20
+
+The system should divide candles into fixed consecutive blocks.
+
+Backtest and future live execution must produce exactly the same blocks.
+
+No repainting.
+
+No rolling windows.
+
+7. Circuit Breaker
+
+Useful idea.
+
+However,
+
+since this phase is only for research and backtesting,
+
+do NOT implement it now.
+
+Move it to the Live Trading phase.
+
+8. Funding Rate
+
+Skip.
+
+Not required in this phase.
+
+9. Partial Take Profit
+
+Skip.
+
+Current strategy must remain exactly as documented.
+
+10. Correlation Filter
+
+Good idea.
+
+Move it to a future version.
+
+Not required now.
+
+Architecture
+
+I strongly agree with the following proposals:
+
+Event Driven Architecture
+Replay Based Backtesting
+Strategy Plugin Interface
+Feature Flags
+Analytics Engine
+
+These should be implemented from the beginning.
+
+Trade State Machine
+
+I also agree.
+
+However,
+
+keep it simple for now.
+
+Current states are enough:
+
+WAITING
+
+↓
+
+SIGNAL
+
+↓
+
+OPEN
+
+↓
+
+TP
+
+SL
+
+TIME_EXIT
+
+NO_TRADE
+
+RECOVERY
+
+No need for a very complex workflow in Phase 1.
+
+Idempotency
+
+Not required now.
+
+This project will not send live orders.
+
+Move it to Live Trading.
+
+Observability
+
+Implement only:
+
+Structured Logs
+Analytics
+
+Metrics and distributed tracing can wait.
+
+Technology Stack
+
+I would like to simplify the project.
+
+I no longer want to use Cloudflare in this phase.
+
+Please build everything locally.
+
+Preferred stack:
+
+Next.js 16
+TypeScript
+Prisma
+SQLite
+React
+shadcn/ui
+Apache ECharts
+
+No Cloudflare Workers.
+
+No Cloudflare KV.
+
+No D1.
+
+No deployment concerns.
+
+Everything should run locally.
+
+Market Data
+
+The project should NOT connect to Toobit.
+
+Instead:
+
+Use public historical market data.
+
+Preferred priority:
+
+Binance Public API
+KuCoin Public API
+
+No authentication should be required.
+
+Later we can abstract the data provider and add more exchanges.
+
+User Configurable Parameters
+
+The following must be configurable from UI:
+
+Symbol
+Timeframe
+Block Size
+Date Range
+Initial Capital
+Commission
+Slippage
+Validation Rules
+Shadow Threshold
+Risk Parameters
+
+No hard-coded constants.
+
+Backtesting Engine
+
+This is the highest priority.
+
+The same Strategy Engine must be used by both:
+
+Historical Replay
+
+and
+
+Future Live Trading.
+
+Only the data source should change.
+
+The trading logic must never diverge.
+
+Analytics
+
+Besides standard metrics:
+
+Win Rate
+Drawdown
+Profit Factor
+Sharpe
+
+Please also report:
+
+Recovery Trade statistics
+Block Scores
+Validation Rule effects
+Reasons for NO TRADE
+Distribution of Winning Trades
+Distribution of Losing Trades
+Holding Time
+Equity Curve
+UI
+
+The UI language should be Persian (RTL).
+
+Answers to your questions
+Technology
+
+I prefer Next.js.
+
+No Cloudflare for now.
+
+First Deliverable
+
+Backtesting Laboratory.
+
+This has much higher priority than Paper Trading.
+
+Historical Data
+
+Use Binance Public API.
+
+If Binance data is unavailable,
+
+use KuCoin Public API.
+
+No exchange API keys should be required.
+
+Default Configuration
+
+Default Symbol:
+
+BTCUSDT
+
+Default Timeframe:
+
+1 Hour
+
+Default Block Size:
+
+20
+
+However,
+
+all three must be user configurable.
+
+Strategy Improvements
+
+Do NOT modify the original trading strategy.
+
+Implement every enhancement as an optional Feature Flag.
+
+The original strategy must always remain reproducible.
+
+Final Development Objective
+
+The objective of Phase 1 is not to build a trading bot.
+
+The objective is to build a professional Strategy Research Platform where I can rapidly test ideas, compare parameters, validate hypotheses, and improve the strategy with confidence.
+
+Once the strategy demonstrates stable and satisfactory performance through backtesting and walk-forward validation, we will proceed to Paper Trading and finally to Live Trading.
+
+دو نکته مهم که پیشنهاد می‌کنم به متن بالا نیز اضافه کنی
+عدم استفاده از داده‌های آینده (Look-Ahead Bias): در کل موتور بک‌تست باید تضمین شود که هر تصمیم فقط بر اساس اطلاعاتی گرفته شود که در همان لحظه تاریخی در دسترس بوده‌اند. هیچ بخشی از موتور تحلیل یا اعتبارسنجی نباید از کندل‌های آینده استفاده کند.
+یکسان بودن موتور بک‌تست و موتور اجرای زنده: تأکید کن که Strategy Engine و Decision Engine دقیقاً یک کد مشترک داشته باشند و تنها منبع داده تغییر کند (Historical Replay یا Live Feed). این اصل مهم‌ترین عامل برای قابل اعتماد بودن نتایج بک‌تست است.
