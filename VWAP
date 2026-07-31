@@ -1,0 +1,139 @@
+// © Yogi365
+// @version=6
+// Fallback VWAP (No Volume? No Problem!) – Yogi365
+//
+// This script plots Daily, Weekly, and Monthly VWAPs with ±1 Standard Deviation bands.
+// If volume data is unavailable (volume == 0), it automatically falls back to a TWAP-style logic,
+// ensuring the VWAP lines are still visible and reliable on instruments like indices or illiquid assets.
+//
+// ✅ Features:
+// • Auto fallback from VWAP to TWAP when volume is missing
+// • Daily, Weekly, and Monthly VWAPs with standard deviation bands
+// • Color-coded trend direction table
+// • Clear label indication when TWAP fallback is active
+//
+// 📌 Best For:
+// • Indices like NIFTY, SENSEX, FINNIFTY, BANKEX,DJI, etc.
+// • Any chart where volume is missing or zero
+// • Traders looking for reliable VWAPs in all conditions
+//
+// Built by Yogi365 | TradingView Publishing: v1
+
+indicator("Fallback VWAP M.V74", overlay=true)
+
+useVolume = volume > 0
+fallbackVolume = useVolume ? volume : 1
+vwap_src = hlc3
+
+// === VWAP + Deviation Function ===
+calcVWAPAndBands(_tf) =>
+    var float cumVal = na
+    var float cumVol = na
+    var float cumSqVal = na
+
+    isNewSession = ta.change(time(_tf)) != 0
+    v = fallbackVolume
+
+    if isNewSession
+        cumVal := vwap_src * v
+        cumVol := v
+        cumSqVal := math.pow(vwap_src, 2) * v
+    else
+        cumVal := cumVal[1] + vwap_src * v
+        cumVol := cumVol[1] + v
+        cumSqVal := cumSqVal[1] + math.pow(vwap_src, 2) * v
+
+    vwap = cumVal / cumVol
+    meanSq = cumSqVal / cumVol
+    stdDev = math.sqrt(math.max(meanSq - math.pow(vwap, 2), 0))
+
+    [vwap, vwap + stdDev, vwap - stdDev]
+
+// === Calculate VWAPs for Daily, Weekly, Monthly ===
+[dailyVWAP, dailyUpper, dailyLower] = calcVWAPAndBands("D")
+[weeklyVWAP, weeklyUpper, weeklyLower] = calcVWAPAndBands("W")
+[monthlyVWAP, monthlyUpper, monthlyLower] = calcVWAPAndBands("M")
+
+// === Plot Colors ===
+dailyColor = useVolume ? color.blue : color.new(color.blue, 0)
+weeklyColor = useVolume ? color.rgb(76, 175, 80) : color.rgb(241, 62, 7)
+monthlyColor = useVolume ? color.orange : color.new(color.orange, 0)
+
+dailyBandColor = color.new(dailyColor, 30)
+weeklyBandColor = color.new(weeklyColor, 30)
+monthlyBandColor = color.new(monthlyColor, 30)
+
+// === Plot VWAP lines ===
+plot(dailyVWAP, "VWAP (Daily)", color=dailyColor, linewidth=2)
+plot(dailyUpper, "+1 STD (Daily)", color=dailyBandColor, linewidth=1)
+plot(dailyLower, "-1 STD (Daily)", color=dailyBandColor, linewidth=1)
+
+plot(weeklyVWAP, "VWAP (Weekly)", color=weeklyColor, linewidth=2)
+plot(weeklyUpper, "+1 STD (Weekly)", color=weeklyBandColor, linewidth=1)
+plot(weeklyLower, "-1 STD (Weekly)", color=weeklyBandColor, linewidth=1)
+
+plot(monthlyVWAP, "VWAP (Monthly)", color=monthlyColor, linewidth=2)
+plot(monthlyUpper, "+1 STD (Monthly)", color=monthlyBandColor, linewidth=1)
+plot(monthlyLower, "-1 STD (Monthly)", color=monthlyBandColor, linewidth=1)
+
+// === Manage labels outside the function ===
+var label dailyLbl = na
+var label weeklyLbl = na
+var label monthlyLbl = na
+
+if not useVolume
+    label.delete(dailyLbl)
+    dailyLbl := label.new(bar_index+10, dailyVWAP, "TWAP fallback\nDaily",
+         xloc = xloc.bar_index, yloc = yloc.price,
+         style=label.style_label_left, color=dailyColor, textcolor=color.white, size=size.small)
+
+    label.delete(weeklyLbl)
+    weeklyLbl := label.new(bar_index+10, weeklyVWAP, "TWAP fallback\nWeekly",
+         xloc = xloc.bar_index, yloc = yloc.price,
+         style=label.style_label_left, color=weeklyColor, textcolor=color.white, size=size.small)
+
+    label.delete(monthlyLbl)
+    monthlyLbl := label.new(bar_index+10, monthlyVWAP, "TWAP fallback\nMonthly",
+         xloc = xloc.bar_index, yloc = yloc.price,
+         style=label.style_label_left, color=monthlyColor, textcolor=color.white, size=size.small)
+else
+    label.delete(dailyLbl)
+    label.delete(weeklyLbl)
+    label.delete(monthlyLbl)
+
+
+// === Trend Status Table ===
+var table trendTable = table.new(position.top_right, 3, 4, frame_color=color.gray, frame_width=1)
+
+// Titles
+if bar_index == 1
+    table.cell(trendTable, 0, 0, "VWAP", text_color=color.white, bgcolor=color.black)
+    table.cell(trendTable, 1, 0, "Bands", text_color=color.white, bgcolor=color.black)
+    table.cell(trendTable, 2, 0, "TF", text_color=color.white, bgcolor=color.black)
+
+// === Helper Function ===
+getColor(_close, _vwap, _upper, _lower) =>
+    vwCol = _close > _vwap ? color.green : color.red
+    bandCol = _close > _upper ? color.green : _close < _lower ? color.red : color.gray
+    [vwCol, bandCol]
+
+// === Calculate Colors ===
+[d_vwCol, d_bandCol] = getColor(close, dailyVWAP, dailyUpper, dailyLower)
+[w_vwCol, w_bandCol] = getColor(close, weeklyVWAP, weeklyUpper, weeklyLower)
+[m_vwCol, m_bandCol] = getColor(close, monthlyVWAP, monthlyUpper, monthlyLower)
+
+// === Set Table Cells ===
+// Daily
+table.cell(trendTable, 0, 1, "", bgcolor=d_vwCol)
+table.cell(trendTable, 1, 1, "", bgcolor=d_bandCol)
+table.cell(trendTable, 2, 1, "Daily", text_color=color.white, bgcolor=color.new(color.gray, 80))
+
+// Weekly
+table.cell(trendTable, 0, 2, "", bgcolor=w_vwCol)
+table.cell(trendTable, 1, 2, "", bgcolor=w_bandCol)
+table.cell(trendTable, 2, 2, "Weekly", text_color=color.white, bgcolor=color.new(color.gray, 80))
+
+// Monthly
+table.cell(trendTable, 0, 3, "", bgcolor=m_vwCol)
+table.cell(trendTable, 1, 3, "", bgcolor=m_bandCol)
+table.cell(trendTable, 2, 3, "Monthly", text_color=color.white, bgcolor=color.new(color.gray, 80))
