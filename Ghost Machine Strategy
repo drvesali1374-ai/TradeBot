@@ -1,0 +1,356 @@
+// This Pine Script™ strategy is based on the logic of "Momentum Ghost Machine [ChartPrime]"
+// Original idea: momo = delta - ma
+//@version=5
+strategy("Ghost Machine Strategy", overlay=false, pyramiding=0, process_orders_on_close=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100)
+
+//==============================
+// Helper functions (from source)
+//==============================
+method is_even(simple int n) => n % 2 == 0
+
+sinc(float x) =>
+    x == 0 ? 1 : math.sin(math.pi * x) / (math.pi * x)
+
+blackman(float n, int length) =>
+    0.42 - 0.5 * math.cos((2 * math.pi * n) / (length - 1)) + 0.08 * math.cos((4 * math.pi * n) / (length - 1))
+
+mid_point(int x) =>
+    (x - 1) / 2
+
+offset(simple int length) =>
+    (length - 1) / 2
+
+get_data(float source, simple int length) =>
+    var float[] data = array.new<float>()
+    if data.size() < length
+        data.unshift(source)
+        data
+    else
+        data.unshift(source)
+        data.pop()
+        data
+
+sinc_coefficients(simple int length, float fc) =>
+    float[] coefficients = array.new<float>()
+    int mid = mid_point(length)
+    float cutoff = 1 / fc
+    for i = 0 to length - 1
+        int n = i - mid
+        int k = i
+        int M = length
+        if length.is_even()
+            float coefficient = sinc(2 * cutoff * n) * blackman(k + 0.5, M)
+            coefficients.push(coefficient)
+        else
+            float coefficient = sinc(2 * cutoff * n) * blackman(k, M)
+            coefficients.push(coefficient)
+    coefficients
+
+toeplitz_matrix_valid(float[] coefficients, int M) =>
+    int N = coefficients.size()
+    int rows = M - N + 1
+    matrix<float> toeplitz = matrix.new<float>(rows, M, 0)
+    for r = 0 to rows - 1
+        for c = 0 to N - 1
+            if (c + r) < M
+                toeplitz.set(r, c + r, coefficients.get(c))
+            else
+                break
+    toeplitz
+
+convolution(float[] data, float[] coefficients) =>
+    var float normalize = coefficients.sum()
+    var matrix<float> toeplitz_matrix = toeplitz_matrix_valid(coefficients, data.size())
+    float convolved = matrix.mult(toeplitz_matrix, data).first()
+    convolved / normalize
+
+lti_sinc(series float source, simple int length, simple float fc = 100) =>
+    float[] data = get_data(source, length)
+    var float[] coefficients = sinc_coefficients(length, fc)
+    if bar_index > length
+        convolved = convolution(data, coefficients)
+    else
+        float(na)
+
+ema(series float source, simple float length) =>
+    float alpha = 2.0 / (length + 1)
+    var float smoothed = na
+    smoothed := alpha * source + (1.0 - alpha) * nz(smoothed[1], source)
+
+dema(series float source, simple float length) =>
+    float ema1 = ema(source, length)
+    float ema2 = ema(ema1, length)
+    2.0 * ema1 - ema2
+
+tema(series float source, simple float length) =>
+    float ema1 = ema(source, length)
+    float ema2 = ema(ema1, length)
+    float ema3 = ema(ema2, length)
+    (ema1 - ema2) * 3.0 + ema3
+
+wma(series float source, simple int length) =>
+    var float weight_sum = length * 0.5 * (length + 1)
+    float sum = 0.0
+    for int i = 0 to length - 1
+        sum += source[i] * (length - i)
+    sum / weight_sum
+
+sma(series float source, simple int length) =>
+    float sum = ta.cum(source)
+    if bar_index < length - 1
+        sum / (bar_index + 1)
+    else
+        (sum - sum[length]) / length
+
+filter(series float source, simple int length, simple string style) =>
+    if length > 1
+        switch style
+            "EMA"  => ema(source, length)
+            "DEMA" => dema(source, length)
+            "TEMA" => tema(source, length)
+            "WMA"  => wma(source, length)
+            => sma(source, length)
+    else
+        source
+
+color_changer(color source, bool direction) =>
+    float r = color.r(source)
+    float g = color.g(source)
+    float b = color.b(source)
+    if direction
+        color.rgb((255 - r) / 3 + r, (255 - g) / 3 + g, (255 - b) / 3 + b)
+    else
+        color.rgb(r / 1.5, g / 1.5, b / 1.5)
+
+//==============================
+// Inputs
+//==============================
+const string settings = "Settings"
+float source = input.source(close, "Source", group = settings)
+int momentum_length = input.int(50, "Momentum Length", minval = 1, group = settings)
+float momentum_smoothing = input.float(50, "Momentum Smoothing", minval = 1, group = settings)
+int post_smoothing = input.int(4, "Post Smoothing", minval = 1, group = settings)
+string post_smoothing_style = input.string("WMA", "Post Smoothing Style", ["EMA", "DEMA", "TEMA", "WMA", "SMA"], group = settings)
+int ma_length = input.int(24, "MA Length", minval = 2, group = settings)
+string ma_style = input.string("EMA", "MA Style", ["EMA", "DEMA", "TEMA", "WMA", "SMA"], group = settings)
+
+const string strategyGroup = "Strategy"
+bool useLevel2 = input.bool(true, "Enable Level 2", group = strategyGroup)
+bool useLevel3 = input.bool(true, "Enable Level 3", group = strategyGroup)
+bool allowSameWaveReentry = input.bool(false, "Re-enter Same Wave After Exit", group = strategyGroup)
+
+float longTPPct  = input.float(2.0, "Long Take Profit %", minval = 0.0, group = strategyGroup)
+float longSLPct  = input.float(1.0, "Long Stop Loss %", minval = 0.0, group = strategyGroup)
+float shortTPPct = input.float(2.0, "Short Take Profit %", minval = 0.0, group = strategyGroup)
+float shortSLPct = input.float(1.0, "Short Stop Loss %", minval = 0.0, group = strategyGroup)
+
+float beTriggerPct = input.float(1.0, "Break-even Trigger %", minval = 0.0, group = strategyGroup)
+float beStopPct    = input.float(0.0, "Break-even Stop %", minval = -100.0, group = strategyGroup)
+
+bool showSignals = input.bool(true, "Show Entry Markers", group = strategyGroup)
+
+const string style = "Style"
+bool candleColorOn = input.bool(true, "Color Bars", group = style)
+int cd_alpha = input.int(25, "MA Difference Alpha", minval = 0, maxval = 100, group = style)
+string candle_color_style = input.string("Both", "Candle Color Style", ["MA", "Direct", "Both", "None"], group = style)
+color momentum_color = input.color(#ffffff, "Momentum Color", group = style)
+color ma_color = input.color(#f7a000, "MA Color", group = style)
+color cd_up_over = input.color(#2ac075, "Bullish Up", group = style)
+color cd_up_under = input.color(#d5fce9, "Bullish Down", group = style)
+color cd_down_under = input.color(#f82934, "Bearish Down", group = style)
+color cd_down_over = input.color(#ffc8cb, "Bearish Up", group = style)
+bool glow = input.bool(true, "Glow", group = style)
+
+//==============================
+// Core calculations
+//==============================
+int length_correction = momentum_length * 2
+float sincValue = lti_sinc(source, length_correction, momentum_smoothing)
+int calcOffset = offset(length_correction)
+float delta = filter((source - sincValue) / calcOffset, post_smoothing, post_smoothing_style)
+float ma = filter(filter(delta, 2, ma_style), ma_length, ma_style)
+float momo = delta - ma
+
+//==============================
+// Colors for histogram/candles
+//==============================
+var color momo_color = na
+if momo > 0
+    if momo > momo[1]
+        momo_color := cd_up_over
+    else
+        momo_color := cd_up_under
+else
+    if momo < momo[1]
+        momo_color := cd_down_under
+    else
+        momo_color := cd_down_over
+
+var color direct_color = na
+if candle_color_style == "Both"
+    if delta > 0
+        if momo < 0
+            direct_color := color_changer(momo_color, true)
+        else
+            direct_color := momo_color
+    else
+        if momo > 0
+            direct_color := color_changer(momo_color, false)
+        else
+            direct_color := momo_color
+else
+    if delta > 0
+        if delta > delta[1]
+            direct_color := cd_up_over
+        else
+            direct_color := cd_up_under
+    else
+        if delta < delta[1]
+            direct_color := cd_down_under
+        else
+            direct_color := cd_down_over
+
+//==============================
+// Level 1 raw signal
+//==============================
+bool longRaw = barstate.isconfirmed and ta.crossover(momo, 0)
+bool shortRaw = barstate.isconfirmed and ta.crossunder(momo, 0)
+
+//==============================
+// Level 2 confirmation (optional)
+//==============================
+bool longL2Ok = true
+bool shortL2Ok = true
+if useLevel2
+    longL2Ok := delta > ma
+    shortL2Ok := delta < ma
+
+//==============================
+// Level 3 filter (optional, entry filter only)
+//==============================
+bool longL3Ok = true
+bool shortL3Ok = true
+if useLevel3
+    bool longMomentumAccelOk = momo > momo[1]
+    bool shortMomentumAccelOk = momo < momo[1]
+    bool longTrendOk = delta > delta[1] and ma > ma[1]
+    bool shortTrendOk = delta < delta[1] and ma < ma[1]
+    longL3Ok := longMomentumAccelOk and longTrendOk
+    shortL3Ok := shortMomentumAccelOk and shortTrendOk
+
+bool longMainEntry = longRaw and longL2Ok and longL3Ok
+bool shortMainEntry = shortRaw and shortL2Ok and shortL3Ok
+
+//==============================
+// Same-wave re-entry logic
+// Tracks the current wave direction and the last wave
+// in which a position was closed while the wave still matched.
+//==============================
+var int activeWaveDir = 0          // 1 = green wave, -1 = red wave, 0 = neutral
+var int pendingReentryDir = 0      // 1 = re-enter long, -1 = re-enter short, 0 = none
+
+int currentWaveDir = momo > 0 ? 1 : momo < 0 ? -1 : 0
+
+// Update wave session when a new non-zero wave starts
+if currentWaveDir != 0 and currentWaveDir != activeWaveDir
+    activeWaveDir := currentWaveDir
+    pendingReentryDir := 0
+
+int prevPosDir = strategy.position_size[1] > 0 ? 1 : strategy.position_size[1] < 0 ? -1 : 0
+int currPosDir = strategy.position_size > 0 ? 1 : strategy.position_size < 0 ? -1 : 0
+
+bool closedPositionThisBar = prevPosDir != 0 and currPosDir == 0
+
+// If we got flat while the same wave still matches the previous direction,
+// mark that direction as eligible for same-wave re-entry.
+if closedPositionThisBar and currentWaveDir != 0 and currentWaveDir == prevPosDir
+    pendingReentryDir := prevPosDir
+
+bool longReentry = allowSameWaveReentry and strategy.position_size == 0 and pendingReentryDir == 1 and currentWaveDir == 1 and not longRaw
+bool shortReentry = allowSameWaveReentry and strategy.position_size == 0 and pendingReentryDir == -1 and currentWaveDir == -1 and not shortRaw
+
+bool longEntry = longMainEntry or longReentry
+bool shortEntry = shortMainEntry or shortReentry
+
+//==============================
+// Position management:
+// close opposite first, then enter
+//==============================
+if longEntry and strategy.position_size <= 0
+    if strategy.position_size < 0
+        strategy.close("Short")
+    strategy.entry("Long", strategy.long)
+
+if shortEntry and strategy.position_size >= 0
+    if strategy.position_size > 0
+        strategy.close("Long")
+    strategy.entry("Short", strategy.short)
+
+//==============================
+// Fixed TP/SL + Break-even
+//==============================
+var bool longBEActive = false
+var bool shortBEActive = false
+
+if strategy.position_size <= 0
+    longBEActive := false
+if strategy.position_size >= 0
+    shortBEActive := false
+
+if strategy.position_size > 0 and not na(strategy.position_avg_price)
+    float avgLong = strategy.position_avg_price
+    float longTP = avgLong * (1 + longTPPct / 100)
+    float longSL = avgLong * (1 - longSLPct / 100)
+    float longBEStop = avgLong * (1 + beStopPct / 100)
+
+    if high >= avgLong * (1 + beTriggerPct / 100)
+        longBEActive := true
+
+    float longStopFinal = longBEActive ? math.max(longSL, longBEStop) : longSL
+    strategy.exit("Long Exit", from_entry = "Long", stop = longStopFinal, limit = longTP)
+
+if strategy.position_size < 0 and not na(strategy.position_avg_price)
+    float avgShort = strategy.position_avg_price
+    float shortTP = avgShort * (1 - shortTPPct / 100)
+    float shortSL = avgShort * (1 + shortSLPct / 100)
+    float shortBEStop = avgShort * (1 - beStopPct / 100)
+
+    if low <= avgShort * (1 - beTriggerPct / 100)
+        shortBEActive := true
+
+    float shortStopFinal = shortBEActive ? math.min(shortSL, shortBEStop) : shortSL
+    strategy.exit("Short Exit", from_entry = "Short", stop = shortStopFinal, limit = shortTP)
+
+//==============================
+// Visuals
+//==============================
+hline(0, "Zero", color=color.new(color.gray, 70))
+
+plot(momo, "Convergance Divergence", color.new(momo_color, cd_alpha), 5, glow ? plot.style_histogram : plot.style_columns)
+plot(glow ? momo : na, "Convergance Divergence Glow", color.new(momo_color, cd_alpha + (100 - cd_alpha) / 2), 1, plot.style_columns, display = display.pane)
+
+plot(ma, "MA", ma_color)
+a = plot(glow ? ma : na, "MA Glow", color.new(ma_color, 80), 4, display = display.pane)
+
+plot(delta, "Momentum", momentum_color)
+b = plot(glow ? delta : na, "Momentum Glow", color.new(momentum_color, 80), 4, display = display.pane)
+fill(a, b, color.new(delta > ma ? momentum_color : ma_color, 90), "Momentum Fill", editable = true)
+
+// Entry markers
+// plotshape(showSignals and longEntry, title="Long Signal", style=shape.triangleup, location=location.bottom, color=color.lime, text=allowSameWaveReentry and longReentry ? "LR" : "L", textcolor=color.black, size=size.tiny)
+// plotshape(showSignals and shortEntry, title="Short Signal", style=shape.triangledown, location=location.top, color=color.red, text=allowSameWaveReentry and shortReentry ? "SR" : "S", textcolor=color.white, size=size.tiny)
+
+plotshape(showSignals and longEntry and not longReentry, title="Long Signal", style=shape.triangleup, location=location.bottom, color=color.lime, text="L", textcolor=color.black, size=size.tiny)
+plotshape(showSignals and longReentry, title="Long Re-entry", style=shape.triangleup, location=location.bottom, color=color.green, text="LR", textcolor=color.white, size=size.tiny)
+
+plotshape(showSignals and shortEntry and not shortReentry, title="Short Signal", style=shape.triangledown, location=location.top, color=color.red, text="S", textcolor=color.white, size=size.tiny)
+plotshape(showSignals and shortReentry, title="Short Re-entry", style=shape.triangledown, location=location.top, color=color.maroon, text="SR", textcolor=color.white, size=size.tiny)
+
+// Bar colors
+bar_color = switch candle_color_style
+    "MA"     => momo_color
+    "Both"   => direct_color
+    "Direct" => direct_color
+    "None"   => na
+
+barcolor(candleColorOn ? bar_color : na)
