@@ -1,0 +1,263 @@
+//@version=6
+strategy("Oscillator Divergence Strategy (Pure)", overlay=true,
+     default_qty_type=strategy.percent_of_equity, default_qty_value=10,
+     initial_capital=10000, commission_type=strategy.commission.percent, commission_value=0.1,
+     slippage=1, pyramiding=0)
+
+// =====================================================================
+// 1. INPUTS - OSCILLATOR
+// =====================================================================
+grp_osc = "🎯 Oscillator Settings"
+osc_mode = input.string("MACD", "Oscillator Mode", 
+     options=["MACD", "RSI", "Custom Source"], group=grp_osc)
+osc_custom = input.source(close, "Custom Oscillator Source", group=grp_osc)
+rsi_len = input.int(14, "RSI Length", group=grp_osc)
+macd_fast = input.int(12, "MACD Fast Length", group=grp_osc)
+macd_slow = input.int(26, "MACD Slow Length", group=grp_osc)
+macd_signal_len = input.int(9, "MACD Signal Length", group=grp_osc)
+
+// =====================================================================
+// 2. INPUTS - SWING DETECTION (Causal)
+// =====================================================================
+grp_swing = "📐 Swing Detection (Causal)"
+swing_L = input.int(10, "Lookback Window (L)", minval=3, group=grp_swing,
+     tooltip="تعداد کل کندل‌ها برای یافتن سقف/کف پیوت")
+swing_R_input = input.int(3, "Confirmation Bars (R)", minval=1, group=grp_swing,
+     tooltip="تعداد کندل بعد از پیوت که باید بگذرد تا تأیید شود (تأخیر ذاتی، بدون آینده‌نگری)")
+int swing_R = math.min(swing_R_input, swing_L - 1)
+
+// =====================================================================
+// 3. INPUTS - SIGNAL LOGIC
+// =====================================================================
+grp_sig = "🎛️ Signal Logic"
+div_type = input.string("Both", "Divergence Type", 
+     options=["Both", "Regular Only", "Hidden Only"], group=grp_sig,
+     tooltip="Regular = بازگشتی، Hidden = ادامه‌دهنده")
+require_osc_pivot = input.bool(true, "Require Oscillator Pivot Confirmation", group=grp_sig,
+     tooltip="اگر فعال باشد، هم قیمت و هم اسیلاتور باید پیوت تأییدشده داشته باشند")
+min_bars_between = input.int(5, "Cooldown (Min Bars Between Signals)", minval=0, group=grp_sig)
+
+grp_confirm = "✅ Confirmation"
+use_osc_cross = input.bool(false, "Require Oscillator Cross Confirmation", group=grp_confirm,
+     tooltip="بعد از واگرایی، منتظر کراس اسیلاتور با سطح میانی بمان")
+osc_mid_level = input.float(0.0, "Oscillator Mid Level", group=grp_confirm,
+     tooltip="برای MACD معمولاً 0، برای RSI معمولاً 50")
+
+grp_timing = "⏱️ Signal Timing"
+signal_mode = input.string("On Candle Close", "Signal Timing", 
+     options=["On Candle Close", "Intrabar"], group=grp_timing)
+
+// =====================================================================
+// 4. INPUTS - RISK MANAGEMENT
+// =====================================================================
+grp_risk = "🛡️ Risk Management"
+use_sl_tp = input.bool(true, "Use SL/TP", group=grp_risk)
+atrLength = input.int(14, "ATR Length", group=grp_risk)
+slMultiplier = input.float(1.5, "Stop Loss (ATR ×)", group=grp_risk)
+tpMultiplier = input.float(3.0, "Take Profit (ATR ×)", group=grp_risk)
+use_trailing = input.bool(false, "Use Trailing Stop", group=grp_risk)
+trailMultiplier = input.float(2.0, "Trailing Stop (ATR ×)", group=grp_risk)
+
+// =====================================================================
+// 5. OSCILLATOR CALCULATION
+// =====================================================================
+is_confirmed = signal_mode == "On Candle Close" ? barstate.isconfirmed : true
+
+[macdLine, signalLine, histLine] = ta.macd(close, macd_fast, macd_slow, macd_signal_len)
+
+float osc = na
+if osc_mode == "MACD"
+    osc := macdLine
+else if osc_mode == "RSI"
+    osc := ta.rsi(close, rsi_len)
+else
+    osc := osc_custom
+
+// ATR
+atrValue = ta.atr(atrLength)
+
+// =====================================================================
+// 6. CAUSAL SWING STATE VARIABLES
+// =====================================================================
+// Highs
+var float price_prev_high = na
+var float price_last_high = na
+var float osc_prev_high = na
+var float osc_last_high = na
+var int   bar_prev_high = na
+var int   bar_last_high = na
+
+// Lows
+var float price_prev_low = na
+var float price_last_low = na
+var float osc_prev_low = na
+var float osc_last_low = na
+var int   bar_prev_low = na
+var int   bar_last_low = na
+
+// =====================================================================
+// 7. SWING DETECTION (CAUSAL - No Repaint)
+// =====================================================================
+bool is_new_swing_high = ta.highestbars(high, swing_L) == -swing_R
+bool is_new_swing_low  = ta.lowestbars(low, swing_L) == -swing_R
+
+if is_new_swing_high
+    price_prev_high := price_last_high
+    price_last_high := high[swing_R]
+    osc_prev_high := osc_last_high
+    osc_last_high := osc[swing_R]
+    bar_prev_high := bar_last_high
+    bar_last_high := bar_index - swing_R
+
+if is_new_swing_low
+    price_prev_low := price_last_low
+    price_last_low := low[swing_R]
+    osc_prev_low := osc_last_low
+    osc_last_low := osc[swing_R]
+    bar_prev_low := bar_last_low
+    bar_last_low := bar_index - swing_R
+
+// =====================================================================
+// 8. DIVERGENCE DETECTION
+// =====================================================================
+// Regular Bullish: قیمت کف پایین‌تر، اسیلاتور کف بالاتر
+// Hidden Bullish:  قیمت کف بالاتر، اسیلاتور کف پایین‌تر
+// Regular Bearish: قیمت سقف بالاتر، اسیلاتور سقف پایین‌تر
+// Hidden Bearish:  قیمت سقف پایین‌تر، اسیلاتور سقف بالاتر
+
+bool reg_bull = false
+bool reg_bear = false
+bool hid_bull = false
+bool hid_bear = false
+
+if is_new_swing_low and not na(price_prev_low) and not na(osc_prev_low)
+    // Regular Bullish
+    if price_last_low < price_prev_low and osc_last_low > osc_prev_low
+        reg_bull := true
+    // Hidden Bullish
+    if price_last_low > price_prev_low and osc_last_low < osc_prev_low
+        hid_bull := true
+
+if is_new_swing_high and not na(price_prev_high) and not na(osc_prev_high)
+    // Regular Bearish
+    if price_last_high > price_prev_high and osc_last_high < osc_prev_high
+        reg_bear := true
+    // Hidden Bearish
+    if price_last_high < price_prev_high and osc_last_high > osc_prev_high
+        hid_bear := true
+
+// =====================================================================
+// 9. COMPOSITE DIVERGENCE FLAGS (بر اساس نوع انتخابی)
+// =====================================================================
+bool div_bull_raw = false
+bool div_bear_raw = false
+
+if div_type == "Both"
+    div_bull_raw := reg_bull or hid_bull
+    div_bear_raw := reg_bear or hid_bear
+else if div_type == "Regular Only"
+    div_bull_raw := reg_bull
+    div_bear_raw := reg_bear
+else // Hidden Only
+    div_bull_raw := hid_bull
+    div_bear_raw := hid_bear
+
+// =====================================================================
+// 10. OPTIONAL CONFIRMATION (Oscillator Cross)
+// =====================================================================
+bool cross_bull = true
+bool cross_bear = true
+
+if use_osc_cross
+    cross_bull := ta.crossover(osc, osc_mid_level)
+    cross_bear := ta.crossunder(osc, osc_mid_level)
+
+// =====================================================================
+// 11. FINAL SIGNALS
+// =====================================================================
+var int last_long_bar = na
+var int last_short_bar = na
+
+bool cooldown_ok_long = na(last_long_bar) or min_bars_between == 0 or (bar_index - last_long_bar) >= min_bars_between
+bool cooldown_ok_short = na(last_short_bar) or min_bars_between == 0 or (bar_index - last_short_bar) >= min_bars_between
+
+bool raw_long = div_bull_raw and cross_bull
+bool raw_short = div_bear_raw and cross_bear
+
+bool sig_long = raw_long and is_confirmed and cooldown_ok_long
+bool sig_short = raw_short and is_confirmed and cooldown_ok_short
+
+if sig_long
+    last_long_bar := bar_index
+if sig_short
+    last_short_bar := bar_index
+
+// =====================================================================
+// 12. STRATEGY EXECUTION
+// =====================================================================
+if sig_long
+    strategy.entry("Long", strategy.long)
+
+if sig_short
+    strategy.entry("Short", strategy.short)
+
+// SL / TP / Trailing
+if strategy.position_size != 0
+    float sl_price = na
+    float tp_price = na
+    float trail_price = na
+
+    if strategy.position_size > 0
+        if use_sl_tp
+            sl_price := strategy.position_avg_price - atrValue * slMultiplier
+            tp_price := strategy.position_avg_price + atrValue * tpMultiplier
+        if use_trailing
+            trail_price := close - atrValue * trailMultiplier
+        strategy.exit("Exit Long", from_entry="Long", stop=sl_price, limit=tp_price, trail_price=trail_price)
+    else if strategy.position_size < 0
+        if use_sl_tp
+            sl_price := strategy.position_avg_price + atrValue * slMultiplier
+            tp_price := strategy.position_avg_price - atrValue * tpMultiplier
+        if use_trailing
+            trail_price := close + atrValue * trailMultiplier
+        strategy.exit("Exit Short", from_entry="Short", stop=sl_price, limit=tp_price, trail_price=trail_price)
+
+// بستن در سیگنال مخالف
+if strategy.position_size > 0 and sig_short
+    strategy.close("Long", comment="Opposite Signal")
+if strategy.position_size < 0 and sig_long
+    strategy.close("Short", comment="Opposite Signal")
+
+// =====================================================================
+// 13. VISUALIZATION
+// =====================================================================
+plotshape(sig_long, "LONG", shape.labelup, location.belowbar, 
+     color.new(color.green, 0), text="LONG", textcolor=color.white, size=size.small)
+plotshape(sig_short, "SHORT", shape.labeldown, location.abovebar, 
+     color.new(color.red, 0), text="SHORT", textcolor=color.white, size=size.small)
+
+// نمایش پیوت‌ها
+plotshape(is_new_swing_high, "Swing High", shape.triangledown, location.abovebar, 
+     color.new(color.gray, 0), size=size.tiny, offset=-swing_R)
+plotshape(is_new_swing_low, "Swing Low", shape.triangleup, location.belowbar, 
+     color.new(color.gray, 0), size=size.tiny, offset=-swing_R)
+
+// نمایش انواع واگرایی به تفکیک
+plotshape(reg_bull and is_confirmed, "Reg Bull", shape.diamond, location.belowbar, 
+     color.new(color.lime, 0), size=size.tiny)
+plotshape(hid_bull and is_confirmed, "Hid Bull", shape.diamond, location.belowbar, 
+     color.new(color.aqua, 0), size=size.tiny)
+plotshape(reg_bear and is_confirmed, "Reg Bear", shape.diamond, location.abovebar, 
+     color.new(color.red, 0), size=size.tiny)
+plotshape(hid_bear and is_confirmed, "Hid Bear", shape.diamond, location.abovebar, 
+     color.new(color.fuchsia, 0), size=size.tiny)
+
+// =====================================================================
+// 14. ALERTS
+// =====================================================================
+alertcondition(sig_long, "LONG Signal", "Oscillator Divergence LONG Signal")
+alertcondition(sig_short, "SHORT Signal", "Oscillator Divergence SHORT Signal")
+alertcondition(reg_bull, "Regular Bullish Div", "Regular Bullish Divergence Detected")
+alertcondition(reg_bear, "Regular Bearish Div", "Regular Bearish Divergence Detected")
+alertcondition(hid_bull, "Hidden Bullish Div", "Hidden Bullish Divergence Detected")
+alertcondition(hid_bear, "Hidden Bearish Div", "Hidden Bearish Divergence Detected")

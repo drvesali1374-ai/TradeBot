@@ -1,0 +1,172 @@
+//@version=5
+strategy(title="Fake Breakout Strategy GPT 10",shorttitle="TM Fake Breakout",overlay=true,pyramiding=0,initial_capital=10000,commission_type=strategy.commission.percent,commission_value=0.05,calc_on_order_fills=true,process_orders_on_close=true)
+
+//──────────────────────────────────────────────────────────────────────────────
+// Date range (backtest window)
+//──────────────────────────────────────────────────────────────────────────────
+groupDate = "بازه زمانی بک‌تست"
+startDate = input.time(timestamp("01 Jan 2020 00:00 +0000"), "شروع بک‌تست", group=groupDate)
+endDate   = input.time(timestamp("31 Dec 2099 23:59 +0000"), "پایان بک‌تست", group=groupDate)
+inDateRange = time >= startDate and time <= endDate
+
+//──────────────────────────────────────────────────────────────────────────────
+// Signal / indicator settings
+//──────────────────────────────────────────────────────────────────────────────
+groupSignal = "پارامترهای سیگنال"
+lookback          = input.int(50, "Lookback", minval=2, group=groupSignal)
+avgVolPeriod      = input.int(50, "Average Volume Period", minval=1, group=groupSignal)
+rsiPeriod         = input.int(14, "RSI Period", minval=1, group=groupSignal)
+atrPeriod         = input.int(14, "ATR Period", minval=1, group=groupSignal)
+
+// Separate Long/Short thresholds
+rsiLongThreshold  = input.float(30.0, "RSI Long Threshold", step=0.1, group=groupSignal)
+rsiShortThreshold = input.float(70.0, "RSI Short Threshold", step=0.1, group=groupSignal)
+
+volMultLong       = input.float(0.20, "Volume Multiplier Long", step=0.01, minval=0.0, group=groupSignal)
+volMultShort      = input.float(0.20, "Volume Multiplier Short", step=0.01, minval=0.0, group=groupSignal)
+
+// ATR breakout / range filter
+atrBreakLong      = input.float(0.20, "ATR Breakout Multiplier Long", step=0.01, minval=0.0, group=groupSignal)
+atrBreakShort     = input.float(0.20, "ATR Breakout Multiplier Short", step=0.01, minval=0.0, group=groupSignal)
+
+// Optional candle direction confirmation
+useCandleColorFilter = input.bool(true, "استفاده از فیلتر رنگ کندل", group=groupSignal)
+
+//──────────────────────────────────────────────────────────────────────────────
+// Risk settings: fixed TP/SL + break-even trailing
+//──────────────────────────────────────────────────────────────────────────────
+groupRisk = "مدیریت ریسک"
+longTPPct   = input.float(3.0, "حد سود ثابت لانگ (%)", step=0.1, minval=0.0, group=groupRisk)
+longSLPct   = input.float(1.5, "حد ضرر ثابت لانگ (%)", step=0.1, minval=0.0, group=groupRisk)
+shortTPPct  = input.float(3.0, "حد سود ثابت شورت (%)", step=0.1, minval=0.0, group=groupRisk)
+shortSLPct  = input.float(1.5, "حد ضرر ثابت شورت (%)", step=0.1, minval=0.0, group=groupRisk)
+
+// Break-even trigger and stop lock percentages.
+// Both can be negative if the user wants more aggressive / unusual behavior.
+beTriggerLongPct  = input.float(1.0, "لانگ: فعال‌سازی حدضرر متحرک (%)", step=0.1, minval=-100.0, maxval=100.0, group=groupRisk)
+beStopLongPct     = input.float(0.0, "لانگ: سطح حدضرر متحرک (%)", step=0.1, minval=-100.0, maxval=100.0, group=groupRisk)
+
+beTriggerShortPct = input.float(1.0, "شورت: فعال‌سازی حدضرر متحرک (%)", step=0.1, minval=-100.0, maxval=100.0, group=groupRisk)
+beStopShortPct    = input.float(0.0, "شورت: سطح حدضرر متحرک (%)", step=0.1, minval=-100.0, maxval=100.0, group=groupRisk)
+
+//──────────────────────────────────────────────────────────────────────────────
+// Daily structure: previous day high/low
+//──────────────────────────────────────────────────────────────────────────────
+prevDayHigh = request.security(syminfo.tickerid, "D", high[1], barmerge.gaps_off, barmerge.lookahead_off)
+prevDayLow  = request.security(syminfo.tickerid, "D", low[1],  barmerge.gaps_off, barmerge.lookahead_off)
+
+//──────────────────────────────────────────────────────────────────────────────
+// Core indicators
+//──────────────────────────────────────────────────────────────────────────────
+rsiValue   = ta.rsi(close, rsiPeriod)
+atrValue   = ta.atr(atrPeriod)
+volAverage = ta.sma(volume, avgVolPeriod)
+
+recentLow  = ta.lowest(low[1], lookback)
+recentHigh = ta.highest(high[1], lookback)
+
+barRange   = high - low
+barBody    = math.abs(close - open)
+
+//──────────────────────────────────────────────────────────────────────────────
+// Fake breakout logic (price sweeps a level and closes back inside)
+//──────────────────────────────────────────────────────────────────────────────
+longSweepDaily   = low < prevDayLow and close > prevDayLow
+shortSweepDaily  = high > prevDayHigh and close < prevDayHigh
+
+longSweepRecent  = low < recentLow and close > recentLow
+shortSweepRecent = high > recentHigh and close < recentHigh
+
+longVolumeOk  = not na(volAverage) and volume > volAverage * volMultLong
+shortVolumeOk = not na(volAverage) and volume > volAverage * volMultShort
+
+longAtrOk  = atrValue > 0 and barRange >= atrValue * atrBreakLong
+shortAtrOk = atrValue > 0 and barRange >= atrValue * atrBreakShort
+
+longRsiOk  = rsiValue < rsiLongThreshold
+shortRsiOk = rsiValue > rsiShortThreshold
+
+longCandleOk  = not useCandleColorFilter or close > open
+shortCandleOk = not useCandleColorFilter or close < open
+
+longSignal =
+     inDateRange and barstate.isconfirmed and
+     longSweepDaily and longSweepRecent and
+     longVolumeOk and longAtrOk and longRsiOk and longCandleOk
+
+shortSignal =
+     inDateRange and barstate.isconfirmed and
+     shortSweepDaily and shortSweepRecent and
+     shortVolumeOk and shortAtrOk and shortRsiOk and shortCandleOk
+
+//──────────────────────────────────────────────────────────────────────────────
+// Entries
+// If opposite position exists, TradingView reverses on opposite entry.
+//──────────────────────────────────────────────────────────────────────────────
+if longSignal and strategy.position_size <= 0
+    strategy.entry("Long", strategy.long)
+
+if shortSignal and strategy.position_size >= 0
+    strategy.entry("Short", strategy.short)
+
+//──────────────────────────────────────────────────────────────────────────────
+// Break-even trailing management
+// After first profit reaches trigger %, stop moves to lock level %.
+// Trigger and lock levels can be negative.
+//──────────────────────────────────────────────────────────────────────────────
+var bool longBEActive = false
+var bool shortBEActive = false
+
+// Reset break-even flags when flat
+if strategy.position_size == 0
+    longBEActive := false
+    shortBEActive := false
+
+// Activate BE for long
+if strategy.position_size > 0
+    entry = strategy.position_avg_price
+    longTriggerPrice = entry * (1 + beTriggerLongPct / 100.0)
+    if high >= longTriggerPrice
+        longBEActive := true
+
+// Activate BE for short
+if strategy.position_size < 0
+    entry = strategy.position_avg_price
+    shortTriggerPrice = entry * (1 - beTriggerShortPct / 100.0)
+    if low <= shortTriggerPrice
+        shortBEActive := true
+
+//──────────────────────────────────────────────────────────────────────────────
+// Exits
+// Fixed TP/SL for long/short are separate.
+// Stop becomes dynamic if break-even has activated.
+//──────────────────────────────────────────────────────────────────────────────
+if strategy.position_size > 0
+    entry = strategy.position_avg_price
+    longTP = entry * (1 + longTPPct / 100.0)
+    longFixedSL = entry * (1 - longSLPct / 100.0)
+    longBEStop = entry * (1 + beStopLongPct / 100.0)
+    longFinalSL = longBEActive ? longBEStop : longFixedSL
+
+    strategy.exit(id="Long Exit",from_entry="Long",stop=longFinalSL,limit=longTP)
+
+if strategy.position_size < 0
+    entry = strategy.position_avg_price
+    shortTP = entry * (1 - shortTPPct / 100.0)
+    shortFixedSL = entry * (1 + shortSLPct / 100.0)
+    shortBEStop = entry * (1 - beStopShortPct / 100.0)
+    shortFinalSL = shortBEActive ? shortBEStop : shortFixedSL
+
+    strategy.exit(id="Short Exit",from_entry="Short",stop=shortFinalSL,limit=shortTP)
+
+//──────────────────────────────────────────────────────────────────────────────
+// Visuals
+//──────────────────────────────────────────────────────────────────────────────
+plot(prevDayHigh, "Prev Day High", color=color.new(color.red, 0), linewidth=1, style=plot.style_linebr)
+plot(prevDayLow, "Prev Day Low", color=color.new(color.green, 0), linewidth=1, style=plot.style_linebr)
+
+plot(recentHigh, "Recent High", color=color.new(color.orange, 65), linewidth=1, style=plot.style_linebr)
+plot(recentLow, "Recent Low", color=color.new(color.teal, 65), linewidth=1, style=plot.style_linebr)
+
+plotshape(longSignal, title="Long Signal", style=shape.triangleup, location=location.belowbar, color=color.new(color.green, 0), size=size.tiny, text="L")
+plotshape(shortSignal, title="Short Signal", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0), size=size.tiny, text="S")
